@@ -23,11 +23,6 @@ byte tileAnim=0;
 byte menuItem=0;
 byte ok2render=0;
 
-// 0: 4-level in 2 frames using contrast (slight noise at border between 01 and 10)
-// 1: 4-level in 3 frames (slight flicker due to lower refresh rate)
-// 2: 3-level in 2 frames (no visual artifacts but 3 levels instead of 4)
-static uint8_t grayscale_option = 2;
-
 // explosion
 byte expX[10], expY[10], expF[10], expU[10];
 byte explode = 0;
@@ -47,8 +42,11 @@ static constexpr uint8_t FBW = 128;
 static constexpr uint8_t FBH = 64;
 int FULLBUFF = FBH * FBW / 8;
 static constexpr uint8_t FBP = 8;
-// good range seems to be about 387 to ... anything!
-static uint16_t timer_counter = 415;
+
+// Support a minimum panel refresh rate of 120Hz
+// This also effectively limits the refresh rate to 120Hz because the controller is not allowed to start
+// a new frame faster than the period we set.
+static uint16_t timer_counter = ((F_CPU/64)/(120-1));
 
 static void send_cmds(uint8_t const* d, uint8_t n)
 {
@@ -609,10 +607,9 @@ void setup() {
     {
         0x21, (128 - FBW) / 2, 127 - (128 - FBW) / 2,
         0x22, 0, FBP - 1,
-        0x7E,
-        0xD3, 1,
-        0xD9, 0x31, // boost phase 2
-        0xA8, 0,
+        0x7F,
+        0xD5, 0xF0,
+        0xD9, 0x22, // Use default precharge cycle settings
     };
     send_cmds_prog(SETUP_CMDS, sizeof(SETUP_CMDS));
 
@@ -620,7 +617,7 @@ void setup() {
     bitWrite(TIMSK0, TOIE0, 0);
     
     TCCR3A = 0;
-    TCCR3B = _BV(WGM32) | _BV(CS32); // CTC mode, prescaler /256
+    TCCR3B = _BV(WGM32) | _BV(CS31) | _BV(CS30); // CTC mode, prescaler /64
     OCR3A = timer_counter;
     bitWrite(TIMSK3, OCIE3A, 1);
 
@@ -645,13 +642,36 @@ void loop() {
 ISR(TIMER3_COMPA_vect)
 {
       static uint8_t n = 0;
-        static uint8_t const PRE_CMDS[] PROGMEM = { 0xA8, 63, };
-        static uint8_t const POST_CMDS[] PROGMEM = { 0x81, 0xf0, 0xA8, 0x0, };
+
+      // Use NOPs (0xE3) for simple and precise delay
+      static uint8_t const CONTRAST_CMDS0[] PROGMEM = { 0x81, 0xFF, };
+      static uint8_t const CONTRAST_CMDS1[] PROGMEM = { 0x81, 0x80, };
+      static uint8_t const LOCK_CMDS0[] PROGMEM = { 0x81, 0xFF, 0xA8, 63,
+        0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3,
+        0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3,
+        0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3,
+        0xE3, 0xE3, 0xE3, 0xE3, 0xE3,
+        0xE3, 0xE3,
+        0xA8, 0};
+
+      TCCR3B = 0; // Stop Timer
+      TCNT3 = 0; // Reset the counter
+
+      OCR3A = timer_counter;
 
       paint(screenBuffer, false);
-        send_cmds_prog(PRE_CMDS, sizeof(PRE_CMDS));
-        delayMicroseconds(ROW_DRIVE_WAIT_US);
-        send_cmds_prog(POST_CMDS, sizeof(POST_CMDS));
+
+#if 1
+      send_cmds_prog(CONTRAST_CMDS0, sizeof(CONTRAST_CMDS0));
+#else
+      if (n & 1)
+          send_cmds_prog(CONTRAST_CMDS1, sizeof(CONTRAST_CMDS1));
+      else
+          send_cmds_prog(CONTRAST_CMDS0, sizeof(CONTRAST_CMDS0));
+#endif
+
+      send_cmds_prog(LOCK_CMDS0, sizeof(LOCK_CMDS0));
+      TCCR3B = _BV(WGM32) | _BV(CS31) | _BV(CS30); // restart timer, prescaler /64
 
       if((n & 15) == 0){
         UpdatePad(arduboy.buttonsState());
