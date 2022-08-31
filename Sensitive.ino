@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <Arduboy2.h>
-//#include <ATMlib.h>
+#include <ATMlib.h>
 #include "song.h"
 #include "gfx.h"
 
@@ -23,6 +23,9 @@ byte tileAnim=0;
 byte menuItem=0;
 byte ok2render=0;
 
+void renderLevel(int fn);
+static uint8_t n = 0;
+
 // explosion
 byte expX[10], expY[10], expF[10], expU[10];
 byte explode = 0;
@@ -34,7 +37,7 @@ byte settings[3]; // settings
 
 // Make an instance of arduboy used for many functions
 Arduboy2 arduboy;
-//ATMsynth ATM;
+ATMsynth ATM;
 
 
 #define ROW_DRIVE_WAIT_US 150
@@ -397,19 +400,25 @@ void movePlayer() {
           checkTile(px / 8, py / 8);
         }
       }
-      if (_A[NEW]) {
-        if (curLev[(px / 8) + 16 * (py / 8)] == 16) { // teleport
-          int t = (px / 8) + 16 * (py / 8) + 1;
-          while (curLev[t] != 16) {
-            t++;
-            if (t == 128) {
-              t = 0;
+      static bool waitingForARelease = false;
+      
+      if (_A[HELD]) {
+        waitingForARelease = true;
+      }else{
+        if (waitingForARelease==true){
+          waitingForARelease = false;
+          if (curLev[(px / 8) + 16 * (py / 8)] == 16) { // teleport
+            int t = (px / 8) + 16 * (py / 8) + 1;
+            while (curLev[t] != 16) {
+              t++;
+              if (t == 128) {
+                t = 0;
+              }
             }
+            px = (t % 16) * 8;
+            py = (t / 16) * 8;
           }
-          px = (t % 16) * 8;
-          py = (t / 16) * 8;
         }
-
       }
     }
   }
@@ -525,7 +534,7 @@ void titleScreen() {
   memcpy_P(text1, &text[myInt],33);
   text1[32]=0;
   titleprint(-scroller, 6 , text1);
-  if(frameNumber%6==0){
+  if(++frameNumber%6==0){
     scroller++;
     if(scroller==4){
       scroller=0;
@@ -583,12 +592,12 @@ void playLevel(int fn) {
 void setup() {
   arduboy.begin();
   screenBuffer = arduboy.getBuffer();
-  arduboy.setFrameRate(125);
+  //arduboy.setFrameRate(125);
   //Serial.begin(9600);
   arduboy.audio.on();
   // Initializes ATMSynth and samplerate
   // Begin playback of song.
-//  ATM.play(music);
+  ATM.play(music);
 
  
   gameMode = 5; // titlescreen
@@ -636,12 +645,11 @@ void loop() {
 
     // timer3 will still wake CPU
     Arduboy2::idle();
-//  if(TIMSK4==0){ATM.play(music);} // loop music.
+  if(TIMSK4==0){ATM.play(music);} // loop music.
 }
 
 ISR(TIMER3_COMPA_vect)
 {
-      static uint8_t n = 0;
 
       // Use NOPs (0xE3) for simple and precise delay
       static uint8_t const CONTRAST_CMDS0[] PROGMEM = { 0x81, 0xFF, };
@@ -673,9 +681,9 @@ ISR(TIMER3_COMPA_vect)
       send_cmds_prog(LOCK_CMDS0, sizeof(LOCK_CMDS0));
       TCCR3B = _BV(WGM32) | _BV(CS31) | _BV(CS30); // restart timer, prescaler /64
 
-      if((n & 15) == 0){
+      //if((n & 2) == 0){
         UpdatePad(arduboy.buttonsState());
-      }
+      //}
 
       switch (gameMode) {
         case 5:
