@@ -1,3 +1,10 @@
+#define ABG_IMPLEMENTATION
+#define ABG_SYNC_SLOW_DRIVE
+#define ABG_L3
+#include "ArduboyG.h"
+
+ArduboyG a;
+
 #include <Arduino.h>
 #include <Arduboy2.h>
 #include <ATMlib.h>
@@ -94,10 +101,12 @@ void UpdatePad(int joy_code)
 }
 
 void drawTile(int16_t x, int16_t y, const uint8_t *bitmap) {
+  int offf = (x * 8) + (y * 128);
   for (byte t = 0; t < 8; t++) {
-    screenBuffer[(x * 8) + (y * 128) + t] = pgm_read_byte(bitmap + t);
+    screenBuffer[offf++] = pgm_read_byte(bitmap++);
   }
 }
+
 void drawTileOffset(int16_t x, int16_t y, const uint8_t *bitmap) {
   for (byte t = 0; t < 8; t++) {
     if (y > 0) {
@@ -129,12 +138,16 @@ void print(char x, char y, const char* text, bool color = 1) {
 }
 
 void titleprint(char x, char y, const char* text, bool color = 1) {
-  for (char t = 0; t < strlen(text); t++) {
-    char character = text[t] - 32;
+  
+  for (char t = 0; t < 30; t++) {
+    int character = (text[t] - 32)*3;
+    int offf = x + (y * 128);
     for (byte t1 = 0; t1 < 4; t1++) {
-      if(x+t1>=0 && x+t1<=127){screenBuffer[x + (y * 128) + t1] = pgm_read_byte(myFont + ((character * 3) + t1));}
+      if(x+t1>=0 && x+t1<=123){
+        screenBuffer[offf++] = pgm_read_byte(myFont + character + t1);
+      }
     }
-    if(x+3>=0 && x+3<=127){screenBuffer[x + (y * 128) + 3] = 0;}
+    if(x>=0 && x<=127){screenBuffer[x + (y * 128) + 3] = 0;}
     x += 4;
   }
 }
@@ -474,7 +487,7 @@ void renderLevel(int fn) {
     }
   
     // animate tiles
-    if(fn%6==0){
+    if(fn%13==0){
       tileAnim++;
       if(tileAnim==4){tileAnim=0;}
     }
@@ -517,14 +530,11 @@ byte scroller=0;
 int temp=0;
 void titleScreen() {
   
-  //arduboy.clear();
-
   for(char y=0; y<3; y++){
-    for(char x=0; x<14; x++){
-      //int mt = pgm_read_byte(titleMap+(x+14*y)+((frameNumber%3)*42));
+    for(char x=1; x<15; x++){
       int mt = pgm_read_byte(titleMap+temp);
       if(mt!=0){
-        drawTile(x+1,y+3, titleTiles + (mt*8));
+        drawTile(x,y+2, titleTiles + (mt*8));
       }
       if(temp++>=125){temp=0;}
     }
@@ -533,7 +543,8 @@ void titleScreen() {
   char text1[34];
   memcpy_P(text1, &text[myInt],33);
   text1[32]=0;
-  titleprint(-scroller, 6 , text1);
+  titleprint(4-scroller, 6 , text1);
+
   if(++frameNumber%6==0){
     scroller++;
     if(scroller==4){
@@ -543,8 +554,8 @@ void titleScreen() {
     }
   }
   // sides of scroller
-  drawTile(0,6, titleTiles + (101*8));
-  drawTile(31,5, titleTiles + (101*8));
+  drawTile(0,6, titleTiles + (808));
+  drawTile(31,5, titleTiles + (808));
 
   if (_A[NEW]) {
     lives = 4;
@@ -557,7 +568,7 @@ void titleScreen() {
     fadeIn();
   }
   
-  arduboy.display();
+  //arduboy.display();
 }
 
 void playLevel(int fn) {
@@ -590,109 +601,43 @@ void playLevel(int fn) {
 
 
 void setup() {
-  arduboy.begin();
+  a.begin();
+
+//  arduboy.begin();
+
+  // Required to initialize the hardware.
+  arduboy.boot();
+  
   screenBuffer = arduboy.getBuffer();
-  //arduboy.setFrameRate(125);
-  //Serial.begin(9600);
   arduboy.audio.on();
-  // Initializes ATMSynth and samplerate
-  // Begin playback of song.
   ATM.play(music);
 
- 
   gameMode = 5; // titlescreen
   maxLevels = sizeof(levels) / 66;
-/*
-    arduboy.LCDCommandMode();
-    SPI.transfer(0xD9);
-    SPI.transfer(0x16);
-    SPI.transfer(0xa4); // set entire display on/off
-    SPI.transfer(0xa6); // set normal display
-    SPI.transfer(0xaf); // set display on
-    arduboy.LCDDataMode();  
-*/
 
-    static uint8_t const SETUP_CMDS[] PROGMEM =
-    {
-        0x21, (128 - FBW) / 2, 127 - (128 - FBW) / 2,
-        0x22, 0, FBP - 1,
-        0x7F,
-        0xD5, 0xF0,
-        0xD9, 0x22, // Use default precharge cycle settings
-    };
-    send_cmds_prog(SETUP_CMDS, sizeof(SETUP_CMDS));
-
-    // disable timer0 overflow ISR (cannot use micros/millis/delay)
-    bitWrite(TIMSK0, TOIE0, 0);
-    
-    TCCR3A = 0;
-    TCCR3B = _BV(WGM32) | _BV(CS31) | _BV(CS30); // CTC mode, prescaler /64
-    OCR3A = timer_counter;
-    bitWrite(TIMSK3, OCIE3A, 1);
-
+  // This method kicks off the frame ISR that handles refreshing
+  // the screen. Usually you would call this at the end of setup().
+  a.startGray();
 }
 
 void loop() {
 
-    if (WDTCSR & _BV(WDE))
-    {
-        // disable ints and set magic key
-        cli();
-        *(volatile uint8_t*)0x800 = 0x77;
-        *(volatile uint8_t*)0x801 = 0x77;
-        for(;;);
+  if(a.nextFrame()){
+    UpdatePad(arduboy.buttonsState());
+    switch (gameMode) {
+      case 5:
+        titleScreen();
+        break;
+      case 10:
+        playLevel(n);
+        break;
     }
+  }
 
-    // timer3 will still wake CPU
-    Arduboy2::idle();
-  if(TIMSK4==0){ATM.play(music);} // loop music.
-}
+  renderLevel(n++);
 
-ISR(TIMER3_COMPA_vect)
-{
-
-      // Use NOPs (0xE3) for simple and precise delay
-      static uint8_t const CONTRAST_CMDS0[] PROGMEM = { 0x81, 0xFF, };
-      static uint8_t const CONTRAST_CMDS1[] PROGMEM = { 0x81, 0x80, };
-      static uint8_t const LOCK_CMDS0[] PROGMEM = { 0x81, 0xFF, 0xA8, 63,
-        0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3,
-        0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3,
-        0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0xE3,
-        0xE3, 0xE3, 0xE3, 0xE3, 0xE3,
-        0xE3, 0xE3,
-        0xA8, 0};
-
-      TCCR3B = 0; // Stop Timer
-      TCNT3 = 0; // Reset the counter
-
-      OCR3A = timer_counter;
-
-      paint(screenBuffer, false);
-
-#if 1
-      send_cmds_prog(CONTRAST_CMDS0, sizeof(CONTRAST_CMDS0));
-#else
-      if (n & 1)
-          send_cmds_prog(CONTRAST_CMDS1, sizeof(CONTRAST_CMDS1));
-      else
-          send_cmds_prog(CONTRAST_CMDS0, sizeof(CONTRAST_CMDS0));
-#endif
-
-      send_cmds_prog(LOCK_CMDS0, sizeof(LOCK_CMDS0));
-      TCCR3B = _BV(WGM32) | _BV(CS31) | _BV(CS30); // restart timer, prescaler /64
-
-      //if((n & 2) == 0){
-        UpdatePad(arduboy.buttonsState());
-      //}
-
-      switch (gameMode) {
-        case 5:
-          titleScreen();
-          break;
-        case 10:
-          playLevel(n);
-          break;
-      }
-
-      renderLevel(n++);
+  // loop music?
+  if(TIMSK4 == 0){
+    ATM.play(music);
+  }
 }
