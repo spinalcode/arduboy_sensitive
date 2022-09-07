@@ -1,9 +1,10 @@
 #define ABG_IMPLEMENTATION
-#define ABG_SYNC_SLOW_DRIVE
+#define ABG_SYNC_PARK_ROW
 #define ABG_L3
 #include "ArduboyG.h"
 
-ArduboyG a;
+//ArduboyG a;
+ArduboyG_Config<ABG_Mode::L3> a;
 
 #include <Arduino.h>
 #include <Arduboy2.h>
