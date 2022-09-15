@@ -30,6 +30,9 @@ byte trkNum = 0;
 byte tileAnim=0;
 byte menuItem=0;
 byte ok2render=0;
+int fadingOut = 0;
+int fadingIn = 0;
+double FADESPEED = 1.5;
 
 void renderLevel(int fn);
 static uint8_t n = 0;
@@ -156,72 +159,7 @@ void titleprint(char x, char y, const char* text, bool color = 1) {
 // change brightness?
 void setContrast(uint8_t contrast)
 {
-//  arduboy.LCDCommandMode();
-//  SPI.transfer(0x81); // contrast command
-//  SPI.transfer(contrast);
-//  arduboy.LCDDataMode();
 }
-
-void fadeOut() {
-/*  // set screen to funky settings to allow fade
-  arduboy.LCDCommandMode();
-  SPI.transfer(0xD9); // charge time command
-  SPI.transfer(0x00); // 0 - 16
-  //SPI.transfer(0x81); // contrast command
-  //SPI.transfer(127);
-  SPI.transfer(0xdb); // VCOM deselect level mode
-  SPI.transfer(0x00); // set vcomh = 0.83 * VCC
-  SPI.transfer(0xa4); // set entire display on/off
-  SPI.transfer(0xa6); // set normal display
-  SPI.transfer(0xaf); // set display on
-  arduboy.LCDDataMode();
-
-  for (int t = 127; t > 0; t -= 2) {
-    setContrast(t);
-    frameNumber++;
-    switch (gameMode) {
-      case 10:
-        renderLevel();
-        break;
-    }
-
-  if(TVOUT){
-    Serial.write(screenBuffer, 128 * 8);
-  }
-    
-    arduboy.display();
-  }
-  setContrast(0);
-*/
-}
-void fadeIn() {
-  for (int t = 0; t < 127; t += 2) {
-    setContrast(t);
-    frameNumber++;
-    switch (gameMode) {
-      case 10:
-//        renderLevel();
-        break;
-    }
-    arduboy.display();
-  }
-  // restore screen settings to default
- /*
-  arduboy.LCDCommandMode();
-
-  SPI.transfer(0xD9); // charge time command
-  SPI.transfer(0xF1); // 0 - 16
-  //SPI.transfer(0x81); // contrast command
-  //SPI.transfer(0xCF);
-  SPI.transfer(0xdb); // VCOM deselect level mode
-  SPI.transfer(0x40); // set vcomh = 0.83 * VCC
-  SPI.transfer(0xa4); // set entire display on/off
-  SPI.transfer(0xa6); // set normal display
-  SPI.transfer(0xaf); // set display on
-  arduboy.LCDDataMode();
-*/
-}
-
 
 void paint(uint8_t image[], bool clear)
 {
@@ -250,6 +188,11 @@ void paint(uint8_t image[], bool clear)
     );
 }
 
+void fadeOut() {
+//  fadingOut = 60*8;
+}
+void fadeIn() {
+}
 
 void loadLevel(int number) {
   // wait for no dpad input
@@ -359,9 +302,10 @@ void movePlayer() {
         if (levelNum >= maxLevels) {
           levelNum = 0;
         }
-        fadeOut();
-        loadLevel(levelNum);
-        fadeIn();
+        gameMode=11;
+        //fadeOut();
+        //loadLevel(levelNum);
+        //fadeIn();
       }
     }
     // sneeky water check
@@ -369,20 +313,11 @@ void movePlayer() {
     if (p == 0 || (p>=24 && p<=32)) {
       lives--;
       if (lives >= 0) {
-        fadeOut();
-        loadLevel(levelNum);
-        fadeIn();
+        gameMode=11;
+        //fadeOut();
+        //loadLevel(levelNum);
+        //fadeIn();
       } else {
-        setContrast(127);
-/*
-        arduboy.LCDCommandMode();
-        SPI.transfer(0xD9);
-        SPI.transfer(0x16);
-        SPI.transfer(0xa4); // set entire display on/off
-        SPI.transfer(0xa6); // set normal display
-        SPI.transfer(0xaf); // set display on
-        arduboy.LCDDataMode();  
-*/
         gameMode = 5;
       }
     }
@@ -466,7 +401,7 @@ void movePlayer() {
 
 void renderLevel(int fn) {
 
-  if(gameMode==10){
+  if(gameMode>=10){
     // we clear our screen to black
     //arduboy.clear();
     for (int t = 0; t < 8; t++) {
@@ -523,7 +458,9 @@ void renderLevel(int fn) {
     sprintf(text, "S:%04d  LVS:%02d  LVL:%02d  Hi:%04d", score, lives, temp, hiscore);
     print(0, 7 , text);
 //    arduboy.display();
+  
   }//gameMode==10
+
 }
 
 int myInt=0;
@@ -611,7 +548,7 @@ void setup() {
   
   screenBuffer = arduboy.getBuffer();
   arduboy.audio.on();
-  ATM.play(music);
+//  ATM.play(music);
 
   gameMode = 5; // titlescreen
   maxLevels = sizeof(levels) / 66;
@@ -632,10 +569,49 @@ void loop() {
       case 10:
         playLevel(n);
         break;
+      case 11: // loading next level
+        fadingOut = 60*FADESPEED;
+        gameMode=12;
+        break;
+      case 12:
+        if(fadingOut==0){
+          loadLevel(levelNum);
+          fadingIn = 0;
+          gameMode=14;
+        }
+        break;
+      case 14:
+        if(fadingIn==60*FADESPEED){
+          gameMode = 10;
+        }
+        break;
     }
   }
 
   renderLevel(n++);
+  
+  if(fadingOut>0){
+    int t=0;
+    for(int y=0; y<8; y++){
+      for(int x=0; x<16; x++){
+        for(int s=0; s<8; s++){
+          screenBuffer[t++] &= pgm_read_byte(&gradient[s+(int(fadingOut/FADESPEED)*8)]);
+        }
+      }
+    }
+    fadingOut--;
+  }
+  if(fadingIn<60*FADESPEED){
+    int t=0;
+    for(int y=0; y<8; y++){
+      for(int x=0; x<16; x++){
+        for(int s=0; s<8; s++){
+          screenBuffer[t++] &= pgm_read_byte(&gradient[s+(int(fadingIn/FADESPEED)*8)]);
+        }
+      }
+    }
+    fadingIn++;
+  }
 
   // loop music?
   if(TIMSK4 == 0){
